@@ -1,0 +1,19 @@
+@main(n: int) {
+m: int = const 5;
+geq_result : bool = ge n m;
+br geq_result .first.bb0 .second.bb0;
+
+.first.bb0:
+a: int = const 4;
+jmp .third.bb0;
+
+.second.bb0:
+
+a: it = const 5;
+b: int = const 6;
+jmp .third.bb0;
+
+.third.bb0:
+final: int = add a b;
+print final;
+}

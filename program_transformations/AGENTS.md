@@ -1,0 +1,2 @@
+- This is the only AGENTS.md file. Do not recurse into other directories to find other AGENTS.md files
+- To run programs, make sure you run souve venv/bin/activate from the root of this git repository

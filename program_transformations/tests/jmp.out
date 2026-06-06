@@ -1,0 +1,14 @@
+----------------------------------------------------------------------------------------------------
+LABEL TO BASIC BLOCK MAP:
+{'bb0': [{'dest': 'v', 'op': 'const', 'type': 'int', 'value': 4},
+         {'labels': ['somewhere'], 'op': 'jmp'}],
+ 'bb1': [{'dest': 'v', 'op': 'const', 'type': 'int', 'value': 2}],
+ 'somewhere': [{'args': ['v'], 'op': 'print'}]}
+CFG:
+digraph main {
+	 bb0;
+	 bb1;
+	 bb0 -> somewhere;
+	 bb1 -> somewhere;
+}
+----------------------------------------------------------------------------------------------------

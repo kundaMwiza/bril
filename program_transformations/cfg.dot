@@ -1,0 +1,17 @@
+digraph queen {
+         __bb0;
+         next_ret;
+         for_cond;
+         for_body;
+         rec_func;
+         next_loop;
+         next_ret_1;
+         __bb0 -> next_ret;
+         __bb0 -> for_cond;
+         for_cond -> for_body;
+         for_cond -> next_ret_1;
+         for_body -> rec_func;
+         for_body -> next_loop;
+         rec_func -> next_loop;
+         next_loop -> for_cond;
+}
