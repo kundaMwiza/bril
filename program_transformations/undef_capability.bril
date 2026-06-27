@@ -8,8 +8,7 @@ a: int = const 4;
 jmp .third.bb0;
 
 .second.bb0:
-
-a: it = const 5;
+a: int = const 5;
 b: int = const 6;
 jmp .third.bb0;
 

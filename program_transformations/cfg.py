@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import itertools
+from typing import Protocol
 
 try:
     from . import instruction_effects, utils
@@ -92,14 +93,66 @@ def replace_dtype_to_type(map: dict[str, Any]):
 
 
 @dataclasses.dataclass
-class InstructionBase:
+class Instruction:
     op: str
     effects: instruction_effects.Effects
-    instr_index: int = field(default=-1, kw_only=True)
-    pos: dict[str, int] | None = field(default=None, kw_only=True)
+    instr_index: int = -1
+
+    dest: str | None = None
+    dtype: DtypeType | None = None
+    args: list[Instruction | PlaceholderInstr | GetArgumentInstr] | None = None
+    value: Dtype | None = None
+    funcs: list[str] | None = None
+    labels: list[str] | None = None
+
+    pos: dict[str, int] | None = None
 
     def __post_init__(self):
         self._basic_block: None | BasicBlock = None
+        if self.dest and self.op != "placeholder":
+            assert self.dtype, (
+                "If the destination is provided, the dtype must also be provided"
+            )
+        if self.dtype:
+            assert self.dest, "If the dtype is provided, the dest must also be provided"
+
+    def _validate_bril_instr(self):
+        def assert_attrs_are_none(*attrs: str):
+            assert all(a is None for a in attrs), (
+                f"{self.op} expected {attrs} to not be provided"
+            )
+
+        def assert_all_attrs_with_defaults_except_attr_are_none(*except_attrs: str):
+            assert_attrs_are_none(
+                *[
+                    a.name
+                    for a in dataclasses.fields(self)
+                    # only consider defaulted attrs - others must have been provided
+                    # ignore pos attr which is conditionally provided
+                    if a.default is None
+                    and a.name not in except_attrs
+                    and a.name != "pos"
+                ]
+            )
+
+        if self.op == "jmp":
+            err_msg = f"'jmp' op code requires one label, got {self.labels}"
+            assert self.labels is not None, err_msg
+            assert len(self.labels) == 1, err_msg
+            assert isinstance(self.labels[-1], str)
+            assert_all_attrs_with_defaults_except_attr_are_none("labels")
+        elif self.op == "br":
+            "Conditional branch. One argument: a variable of type bool. "
+            "Two labels: a true label and a false label. Transfer control to one of the two labels depending on the value of the variable."
+            err_msg = f"`br` op code requires one argument and two labels, got: {self.args}, {self.labels}"
+            assert self.args is not None, err_msg
+            assert len(self.args) == 1, err_msg
+            assert self.labels is not None, err_msg
+            assert len(self.labels) == 2, err_msg
+            assert_all_attrs_with_defaults_except_attr_are_none("args", "labels")
+        elif self.op == "call":
+            # <TODO> codex
+            # Validate other Bril instrs here
 
     @property
     def basic_block(self) -> BasicBlock | None:
@@ -113,23 +166,25 @@ class InstructionBase:
         result = dataclasses.asdict(self)
         replace_dtype_to_type(result)
         result.pop("effects")
+        result.pop("instr_index")
+        assert "instr_index" not in result
         args = result.pop("args", None)
         if args is not None:
             assert isinstance(args, list)
             assert len(args) > 0
-            assert isinstance(args[0], (Instruction, PlaceholderInstr))
-            result["args"] = [arg.dest for arg in args]
+            # assert isinstance(args[0], (Instruction, PlaceholderInstr))
+            breakpoint()
+            result["args"] = [arg["dest"] for arg in args]
         # Remove optional values
         result = {k: v for k, v in result.items() if v is not None}
         return result
 
     @classmethod
-    def from_bril_dict(cls, kwargs: dict[str, Any]) -> InstructionBase:
+    def from_bril_dict(cls, kwargs: dict[str, Any]) -> Instruction:
         op = kwargs["op"]
         replace_type_to_dtype(kwargs)
         effects = instruction_effects.Effects()
-        if op == "const":
-            return ConstInstr(**kwargs, effects=effects)
+
         if op == GET_ARGUMENT_OP:
             # `GET_ARGUMENT_OP` instructions should not be removed or reordered
             # because we need to preserve the CFG signature
@@ -138,15 +193,18 @@ class InstructionBase:
 
         if op in {"jmp", "br", "call", "ret"}:
             effects.add_write(instruction_effects.Control)
-        if op == "print":
+        elif op == "print":
             effects.add_write(instruction_effects.IO)
-
-        if op == "load":
+        elif op == "load":
             effects.add_read(instruction_effects.Heap)
         elif op in {"store", "alloc"}:
             effects.add_write(instruction_effects.Heap)
         elif op == "free":
             effects.add_write(instruction_effects.Heap)
+        elif op == "get":
+            effects.add_read(instruction_effects.SSAState)
+        elif op == "set":
+            effects.add_write(instruction_effects.SSAState)
 
         args = kwargs.pop("args", None)
         if args is not None:
@@ -155,7 +213,7 @@ class InstructionBase:
         return Instruction(**kwargs, effects=effects, args=args)
 
     @classmethod
-    def create_undef_instr(cls, arg_name: str, arg_dtype: Dtype) -> InstructionBase:
+    def create_undef_instr(cls, arg_name: str, arg_dtype: DtypeType) -> Instruction:
         return Instruction(
             op="undef",
             effects=instruction_effects.Effects(),
@@ -163,11 +221,33 @@ class InstructionBase:
             dtype=arg_dtype,
         )
 
+    @classmethod
+    def create_ssa_set_instr(
+        cls,
+        write_to: Instruction,
+        read_from: Instruction,
+    ) -> Instruction:
+        assert isinstance(write_to, Instruction)
+        assert write_to.effects.reads_from(instruction_effects.SSAState)
+        effects = instruction_effects.Effects()
+        effects.add_write(instruction_effects.SSAState)
+        return Instruction(op="set", effects=effects, args=[write_to, read_from])
+
+    @classmethod
+    def create_ssa_get_instr(
+        cls, shadow_variable_name: str, dtype: DtypeType
+    ) -> Instruction:
+        effects = instruction_effects.Effects()
+        effects.add_read(instruction_effects.SSAState)
+        return Instruction(
+            op="get", effects=effects, dest=shadow_variable_name, dtype=dtype
+        )
+
     from_dict = from_bril_dict
 
 
 @dataclasses.dataclass
-class PlaceholderInstr(InstructionBase):
+class PlaceholderInstr(Instruction):
     """
     Placeholder instruction awaiting resolution of
     the exact instruction from either the same basic block
@@ -176,8 +256,6 @@ class PlaceholderInstr(InstructionBase):
     when converting to SSA.
     """
 
-    dest: str | None = None
-
     @classmethod
     def create(cls, dest: str, op: str = "placeholder") -> PlaceholderInstr:
         return PlaceholderInstr(
@@ -185,46 +263,24 @@ class PlaceholderInstr(InstructionBase):
         )
 
 
-@dataclasses.dataclass
-class ConstInstr(InstructionBase):
-    dest: str
-    dtype: DtypeType
-    value: Dtype
-
-
-@dataclasses.dataclass
-class GetArgumentInstr(InstructionBase):
-    dest: str
-    dtype: DtypeType
+@dataclasses.dataclass(init=False)
+class GetArgumentInstr(Instruction):
     index: int
 
-
-@dataclasses.dataclass
-class Instruction(InstructionBase):
-    """
-    Models value and effect instructions
-    """
-
-    dest: str | None = None
-    dtype: Dtype | None = None
-    args: list[Instruction | PlaceholderInstr] | None = None
-    funcs: list[str] | None = None
-    labels: list[str] | None = None
+    def __init__(self, index: int, *args, **kwargs):
+        self.index = index
+        super().__init__(*args, **kwargs)
 
     def __post_init__(self):
-        if self.dest:
-            assert self.dtype, (
-                "If the destination is provided, the dtype must also be provided"
-            )
-        if self.dtype:
-            assert self.dest, "If the dtype is provided, the dest must also be provided"
+        assert self.dtype is not None, "GetArgumentInstr must have a dtype"
+        assert self.dest is not None, "GetArgumentInstr must have a dest"
 
 
 @dataclasses.dataclass
 class BasicBlock:
     label: str
     bb_index: int
-    instrs: list[InstructionBase]
+    instrs: list[Instruction]
 
     def __post_init__(self):
         self._cfg = None
@@ -250,7 +306,7 @@ class BasicBlock:
         # BB index and instruction index to locate which basic block and instruction
         # to use
         label = kwargs["label"]
-        instrs = [InstructionBase.from_dict(i) for i in kwargs["instrs"]]
+        instrs = [Instruction.from_dict(i) for i in kwargs["instrs"]]
         bb_index = kwargs["bb_index"]
         return BasicBlock(label, instrs, bb_index)
 
@@ -260,15 +316,21 @@ class BasicBlock:
     ):
         return BasicBlock(
             label=label,
-            instrs=[InstructionBase.from_bril_dict(instr) for instr in instrs],
+            instrs=[Instruction.from_bril_dict(instr) for instr in instrs],
             bb_index=bb_index,
         )
 
     def to_bril_list(self) -> list[BrilInstructionType]:
         return [{"label": self.label}, *[i.to_bril_dict() for i in self.instrs]]
 
-    def insert_instrs(self, instrs: list[InstructionBase], idx: int = 0):
-        assert idx >= 0
+    def insert_instrs(self, instrs: list[Instruction], idx: int = 0):
+        """
+        Supports inserting instructions at index 0...len(self.instrs).
+        Negative indices are wrapped around. To append, sset idx == len(self.instrs)
+        """
+        if idx < 0:
+            idx += len(self.instrs)
+        assert idx <= len(self.instrs)
         new_instrs = self.instrs[:idx]
         cur_idx = idx
         for i in itertools.chain(instrs, self.instrs[idx:]):
@@ -277,6 +339,13 @@ class BasicBlock:
             new_instrs.append(i)
             cur_idx += 1
         self.instrs = new_instrs
+
+    def insert_ssa_set_instrs(self, instrs: list[Instruction]) -> None:
+        """
+        Insert ssa set instructions either:
+            1. Before a branch instruction to a different basic block
+            2. At the end of the basic block
+        """
 
 
 @dataclasses.dataclass
@@ -291,7 +360,8 @@ class CFG:
     class DominanceInfo:
         bb_to_dominators_map: dict[str, set[str]]
         imdom_map: dict[str, None | str]
-        dominance_frontier_map: dict[str, set]
+        reverse_imdom_map: dict[str, set[str]]
+        dominance_frontier_map: dict[str, set[str]]
 
     def __post_init__(self):
         self._program = None
@@ -360,7 +430,7 @@ class CFG:
         cfg: dict[str, list[str]] = defaultdict(list)
         ordered_labels = list(label_to_bb.keys())
         for i, (label, bb) in enumerate(label_to_bb.items()):
-            last_instr: InstructionBase = bb.instrs[-1]
+            last_instr: Instruction = bb.instrs[-1]
             if last_instr.op in ("jmp", "br"):
                 assert hasattr(last_instr, "labels")
                 last_instr = cast(Instruction, last_instr)
@@ -559,7 +629,9 @@ class CFG:
         else:
             dominance_frontier_map[root_block.label] = set()
 
-        return self.DominanceInfo(bb_to_dominators, imdom_map, dominance_frontier_map)
+        return self.DominanceInfo(
+            bb_to_dominators, imdom_map, reverse_imdom_map, dominance_frontier_map
+        )
 
     def get_cfg_arguments(self):
         return [

@@ -9,32 +9,25 @@ b: int = const 10;
 jmp .third.bb0;
 
 .second.bb0:
-
-a: it = const 5;
+a: int = const 5;
 b: int = const 6;
-
 jmp .third.bb0;
 
 .third.bb0:
-
 final: int = add a b;
 get_final: bool = ge final a;
-
 br get_final .fourth.bb0 .fifth.bb0;
 
 .fourth.bb0:
-
 t0: int = const 10;
 a: int = add a t0;
 
 .fifth.bb0:
-
 t1: int = const 15;
 b: int = add a t1;
 
 .sixth.bb0:
 
-a: int = get;
 print a;
 
 }

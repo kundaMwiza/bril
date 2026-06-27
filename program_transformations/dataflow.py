@@ -1,6 +1,7 @@
-import dataclasses
 import collections
+import dataclasses
 import typing
+
 try:
     from . import utils
 except ImportError:
@@ -11,31 +12,32 @@ except ImportError:
 # killed(b): redefinitions of variables in b that kill previous definitions
 # defsout(b): definitions that are defined in b that are not killed in b
 
+
 @dataclasses.dataclass
 class VariableDefinition:
     dest: str
     op: str
     type: str
     value: str
-    pos:  dict[str, int]
+    pos: dict[str, int]
 
 
 # map from variable name to set[Variable]
 DefMap = typing.TypeAlias = dict[str, list[VariableDefinition]]
 
-class BBDataFlowInfo:
 
+class BBDataFlowInfo:
     def __init__(self, bb: utils.BasicBlockType):
         self._bb: utils.BasicBlockType = bb
         # These are definitions that are defined in b that are not killed in
         # the basic block
-        self.defs_out : dict[str, VariableDefinition] = {}
+        self.defs_out: dict[str, VariableDefinition] = {}
 
         # The set of variables that are used by instructions in the
         # basic block but are not defined in the basic block.
         # At the end of TODO: it is required that all uses are satisfied
         # by variables in the reaches map
-        self.uses: set[ str ] = set()
+        self.uses: set[str] = set()
 
         # These are definitions that are killed by definitions
         # in the basic block.
@@ -50,7 +52,9 @@ class BBDataFlowInfo:
             # variable definition
             if "dest" in instr:
                 if "pos" not in instr:
-                    raise RuntimeError("-p to bril2json is required in order to perform dataflow analysis")
+                    raise RuntimeError(
+                        "-p to bril2json is required in order to perform dataflow analysis"
+                    )
 
                 v = VariableDefinition(**instr)
                 # If we've already seen an earlier definition of a
@@ -73,10 +77,7 @@ class BBDataFlowInfo:
         for name, defout in self.defs_out.items():
             self.reaches[name].append(defout)
 
-    def update_reaches(self, predecessors: set[str], bb_data_flow_info_map: dict[str, BBDataFlowInfo]):
+    def update_reaches(
+        self, predecessors: set[str], bb_data_flow_info_map: dict[str, BBDataFlowInfo]
+    ):
         raise NotImplementedError
-
-
-
-def find_iterative_reaching_defs(cfg: utils.CFGType) -> dict[str, BBDataFlowInfo]:
-    pass

@@ -1,0 +1,247 @@
+AbstractHeap(World, pre=0, post=13, num_children=4)
+__bb0
+second.bb0
+first.bb0
+third.bb0
+fourth.bb0
+fifth.bb0
+sixth.bb0
+{
+  "functions": [
+    {
+      "name": "main",
+      "instrs": [
+        {
+          "op": "undef",
+          "dest": "t0.ssa0",
+          "type": "int"
+        },
+        {
+          "op": "const",
+          "dest": "m.ssa0",
+          "value": 5,
+          "type": "int"
+        },
+        {
+          "op": "ge",
+          "dest": "geq_result.ssa0",
+          "type": "bool",
+          "args": [
+            "n.ssa0",
+            "m.ssa0"
+          ]
+        },
+        {
+          "op": "set",
+          "args": [
+            "t0.ssa2",
+            "t0.ssa0"
+          ]
+        },
+        {
+          "op": "br",
+          "labels": [
+            "first.bb0",
+            "second.bb0"
+          ],
+          "args": [
+            "geq_result.ssa0"
+          ]
+        },
+        {
+          "label": "first.bb0"
+        },
+        {
+          "op": "const",
+          "dest": "a.ssa1",
+          "value": 4,
+          "type": "int"
+        },
+        {
+          "op": "const",
+          "dest": "b.ssa1",
+          "value": 10,
+          "type": "int"
+        },
+        {
+          "op": "set",
+          "args": [
+            "a.ssa2",
+            "a.ssa1"
+          ]
+        },
+        {
+          "op": "set",
+          "args": [
+            "b.ssa2",
+            "b.ssa1"
+          ]
+        },
+        {
+          "op": "jmp",
+          "labels": [
+            "third.bb0"
+          ]
+        },
+        {
+          "label": "second.bb0"
+        },
+        {
+          "op": "const",
+          "dest": "a.ssa0",
+          "value": 5,
+          "type": "int"
+        },
+        {
+          "op": "const",
+          "dest": "b.ssa0",
+          "value": 6,
+          "type": "int"
+        },
+        {
+          "op": "set",
+          "args": [
+            "a.ssa2",
+            "a.ssa0"
+          ]
+        },
+        {
+          "op": "set",
+          "args": [
+            "b.ssa2",
+            "b.ssa0"
+          ]
+        },
+        {
+          "op": "jmp",
+          "labels": [
+            "third.bb0"
+          ]
+        },
+        {
+          "label": "third.bb0"
+        },
+        {
+          "op": "get",
+          "dest": "a.ssa2",
+          "type": "int"
+        },
+        {
+          "op": "get",
+          "dest": "b.ssa2",
+          "type": "int"
+        },
+        {
+          "op": "add",
+          "dest": "final.ssa0",
+          "type": "int",
+          "args": [
+            "a.ssa2",
+            "b.ssa2"
+          ]
+        },
+        {
+          "op": "ge",
+          "dest": "get_final.ssa0",
+          "type": "bool",
+          "args": [
+            "final.ssa0",
+            "a.ssa2"
+          ]
+        },
+        {
+          "op": "set",
+          "args": [
+            "a.ssa4",
+            "a.ssa2"
+          ]
+        },
+        {
+          "op": "br",
+          "labels": [
+            "fourth.bb0",
+            "fifth.bb0"
+          ],
+          "args": [
+            "get_final.ssa0"
+          ]
+        },
+        {
+          "label": "fourth.bb0"
+        },
+        {
+          "op": "const",
+          "dest": "t0.ssa1",
+          "value": 10,
+          "type": "int"
+        },
+        {
+          "op": "set",
+          "args": [
+            "t0.ssa2",
+            "t0.ssa1"
+          ]
+        },
+        {
+          "op": "set",
+          "args": [
+            "a.ssa4",
+            "a.ssa3"
+          ]
+        },
+        {
+          "op": "add",
+          "dest": "a.ssa3",
+          "type": "int",
+          "args": [
+            "a.ssa2",
+            "t0.ssa1"
+          ]
+        },
+        {
+          "label": "fifth.bb0"
+        },
+        {
+          "op": "get",
+          "dest": "t0.ssa2",
+          "type": "int"
+        },
+        {
+          "op": "get",
+          "dest": "a.ssa4",
+          "type": "int"
+        },
+        {
+          "op": "const",
+          "dest": "t1.ssa0",
+          "value": 15,
+          "type": "int"
+        },
+        {
+          "op": "add",
+          "dest": "b.ssa3",
+          "type": "int",
+          "args": [
+            "a.ssa4",
+            "t1.ssa0"
+          ]
+        },
+        {
+          "label": "sixth.bb0"
+        },
+        {
+          "op": "print",
+          "args": [
+            "a.ssa4"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "n.ssa0",
+          "type": "int"
+        }
+      ]
+    }
+  ]
+}

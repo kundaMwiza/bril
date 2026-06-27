@@ -1,0 +1,158 @@
+{
+  "functions": [
+    {
+      "args": [
+        {
+          "name": "n",
+          "type": "int"
+        }
+      ],
+      "instrs": [
+        {
+          "dest": "m",
+          "op": "const",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "args": [
+            "n",
+            "m"
+          ],
+          "dest": "geq_result",
+          "op": "ge",
+          "type": "bool"
+        },
+        {
+          "args": [
+            "geq_result"
+          ],
+          "labels": [
+            "first.bb0",
+            "second.bb0"
+          ],
+          "op": "br"
+        },
+        {
+          "label": "first.bb0"
+        },
+        {
+          "dest": "a",
+          "op": "const",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "dest": "b",
+          "op": "const",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "labels": [
+            "third.bb0"
+          ],
+          "op": "jmp"
+        },
+        {
+          "label": "second.bb0"
+        },
+        {
+          "dest": "a",
+          "op": "const",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "dest": "b",
+          "op": "const",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "labels": [
+            "third.bb0"
+          ],
+          "op": "jmp"
+        },
+        {
+          "label": "third.bb0"
+        },
+        {
+          "args": [
+            "a",
+            "b"
+          ],
+          "dest": "final",
+          "op": "add",
+          "type": "int"
+        },
+        {
+          "args": [
+            "final",
+            "a"
+          ],
+          "dest": "get_final",
+          "op": "ge",
+          "type": "bool"
+        },
+        {
+          "args": [
+            "get_final"
+          ],
+          "labels": [
+            "fourth.bb0",
+            "fifth.bb0"
+          ],
+          "op": "br"
+        },
+        {
+          "label": "fourth.bb0"
+        },
+        {
+          "dest": "t0",
+          "op": "const",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "args": [
+            "a",
+            "t0"
+          ],
+          "dest": "a",
+          "op": "add",
+          "type": "int"
+        },
+        {
+          "label": "fifth.bb0"
+        },
+        {
+          "dest": "t1",
+          "op": "const",
+          "type": "int",
+          "value": 15
+        },
+        {
+          "args": [
+            "a",
+            "t1"
+          ],
+          "dest": "b",
+          "op": "add",
+          "type": "int"
+        },
+        {
+          "label": "sixth.bb0"
+        },
+        {
+          "args": [
+            "a"
+          ],
+          "op": "print"
+        }
+      ],
+      "name": "main"
+    }
+  ]
+}

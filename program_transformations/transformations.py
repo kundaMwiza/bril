@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 try:
     from . import cfg, dataflow_analysis
-    from .cfg import InstructionBase, Program
+    from .cfg import Instruction, Program
     from .ssa import convert_to_ssa
 except ImportError:
     import cfg
@@ -37,7 +37,7 @@ class Transformation:
         new_program = self.apply(stage_copy.program)
         return TransformationStage(type(self).__name__, new_program)
 
-    def apply(self, program: Program | dict[Any, Any]) -> Any
+    def apply(self, program: Program | dict[Any, Any]) -> Any:
         raise NotImplementedError
 
 
@@ -59,13 +59,16 @@ class ProgramToSSA(Transformation):
     def apply(self, program) -> Program:
         assert isinstance(program, Program)
         new_cfgs: list[CFG] = []
+        breakpoint()
         for cfg in program.cfgs:
             new_cfgs.append(convert_to_ssa(cfg))
         program.cfgs = new_cfgs
         return program
 
 
-TRANSFORMATION_PRESETS: dict[str, list[type[Transformation]]] = {"default": [ProgramToSSA]}
+TRANSFORMATION_PRESETS: dict[str, list[type[Transformation]]] = {
+    "default": [ProgramToSSA]
+}
 
 
 def apply_transformations(

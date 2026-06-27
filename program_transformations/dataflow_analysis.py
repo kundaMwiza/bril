@@ -1,27 +1,24 @@
 from __future__ import annotations
 
+from email.policy import default
 from typing import cast
 
 try:
-    from .cfg import (
-        CFG,
-        BasicBlock,
-        Dtype,
-        Instruction,
-        InstructionBase,
-        PlaceholderInstr,
-    )
+    from .cfg import CFG, BasicBlock, Dtype, DtypeType, Instruction, PlaceholderInstr
     from .op_info import OpArgTypeResolveFailure, maybe_resolve_arg_type
 except ImportError:
     from cfg import (
         CFG,
+        BasicBlock,
         Dtype,
+        DtypeType,
         Instruction,
         PlaceholderInstr,
     )
     from op_info import OpArgTypeResolveFailure, maybe_resolve_arg_type
 
 
+import dataclasses
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -46,20 +43,20 @@ class BBDataFlowInfo:
     # The set of all variables within the block that have
     # no prior definitions within the block. These are uses that
     # are not satisfied within the block
-    uses: MultiDefMap | None = None
+    uses: MultiDefMap = dataclasses.field(default_factory=MultiDefMap.create)
 
     # The set of all definitions that are defined within the block
     # that are not killed
-    defsout: dict[str, Instruction] | None = None
+    defsout: dict[str, Instruction] = dataclasses.field(default_factory=dict)
 
     # The set of all definitions that define variables killed
     # by other definitions within the block
-    killed: MultiDefMap | None = None
+    killed: MultiDefMap = dataclasses.field(default_factory=MultiDefMap.create)
 
     # The set of all definitions from all blocks that can
     # reach the end of the current basic block. These are defs
     # accessible to other basic blocks
-    exit_reaches: MultiDefMap | None = None
+    exit_reaches: MultiDefMap = dataclasses.field(default_factory=MultiDefMap.create)
 
     @classmethod
     def create(
@@ -78,79 +75,34 @@ class BBDataFlowInfo:
             for var_name in (predecessor_reaches.keys() - killed.keys())
         }
         for var_name in defsout:
+            assert var_name not in reaches, "Def must have killed any reaching def"
             reaches[var_name] = {bb_label: defsout[var_name]}
-        return cls(uses=uses, defsout=defsout, killed=killed, exit_reaches=reaches)
+
+        return cls(
+            uses=uses,
+            defsout=defsout,
+            killed=killed,
+            exit_reaches=reaches,
+        )
 
 
 def run_dataflow_analysis(
     cfg: CFG,
-) -> tuple[dict[str, BBDataFlowInfo], dict[str, Dtype]]:
+) -> tuple[dict[str, BBDataFlowInfo], dict[str, Instruction]]:
     cfg_predecessor_map = cfg.get_predecessor_map()
     root_bb_label: str = cfg.get_root_block().label
 
     def do_dataflow_analysis(
         bb_label: str,
         predecessor_reaches: MultiDefMap,
-        undef_map: dict[str, Dtype],
-        resolve_uses_args: bool = False,
+        undef_map: dict[str, Instruction],
     ):
         bb = cfg.label_to_bb_map[bb_label]
         bb_defs: dict[str, Instruction] = {}
         uses_defs = MultiDefMap.create()
         bb_killed_defs = MultiDefMap.create()
 
-        def maybe_resolve_placeholder_arg(arg: Instruction | PlaceholderInstr):
-            """
-            Instruction args may have PlaceholderInstr so if there are
-            defintions backing these placeholders from either bb_defs or
-            unique definitions from predecessor reaches, resolve the placeholder
-            inplace
-            """
-
-            assert arg.dest is not None
-            arg_has_undef_path = False
-            new_arg = None
-            if arg.dest in bb_defs:
-                # Update PlaceHolderInstr with actual instructions
-                if isinstance(arg, PlaceholderInstr):
-                    new_arg = bb_defs[arg.dest]
-                # Keep the current arg
-                else:
-                    new_arg = arg
-            else:
-                # Check if a variable is defined prior to this basic block
-                if arg.dest in predecessor_reaches:
-                    arg_has_undef_path = not all(
-                        False
-                        if dataflow_map[predecessor_bb_label].exit_reaches is None
-                        else arg.dest in dataflow_map[predecessor_bb_label].exit_reaches
-                        for predecessor_bb_label in cfg_predecessor_map[bb_label]
-                    )
-                    # If there is a single instruction defining a variable from predecessors
-                    # and all predecessor basic blocks have that same reaching instruction
-                    # we can disambiguate a PlaceHolderInstr
-                    # Otherwise we leave it unresolved
-                    if (
-                        resolve_uses_args
-                        and not arg_has_undef_path
-                        and len(predecessor_reaches[arg.dest]) == 1
-                        and isinstance(arg, PlaceholderInstr)
-                    ):
-                        new_arg = list(predecessor_reaches[arg.dest].values())[0]
-                    else:
-                        new_arg = arg
-                    uses_defs.extend_key(arg.dest, predecessor_reaches)
-                else:
-                    arg_has_undef_path = True
-                    new_arg = arg
-
-            assert new_arg is not None, (
-                f"{new_arg=} must be equal to the original arg or a resolved arg"
-            )
-
-            return new_arg, arg_has_undef_path
-
-        def try_resolve_undef_dtype(arg, instr: Instruction):
+        def try_resolve_undef_dtype(arg, instr: Instruction) -> DtypeType:
             """
             If a PlaceholderInstr has a path from the root block to its use,
             it means there is a path in the program in which a variable is
@@ -216,50 +168,89 @@ def run_dataflow_analysis(
             #         uses_defs.extend_key(arg_dest, {root_bb_label: PlaceholderInstr.create(arg_dest, op="undef")})
             return undef_dtype
 
+        def add_uses_defs_for_arg(arg: Instruction | PlaceholderInstr) -> None:
+            """
+            Check if arg has an undef path i.e. there is a path from
+            the root block to the current block that does not define
+            a arg
+            """
+            assert arg.dest is not None
+            arg_has_undef_path: bool = False
+
+            # If arg in bb_defs: nothing to do as there is a single
+            # definition that should back this arg if its a placeholder
+            if arg.dest not in bb_defs:
+                # Check if a variable is defined prior to this basic block
+                if arg.dest in predecessor_reaches:
+                    arg_has_undef_path = not all(
+                        arg.dest in dataflow_map[predecessor_bb_label].exit_reaches
+                        for predecessor_bb_label in cfg_predecessor_map[bb_label]
+                    )
+                    uses_defs.extend_key(arg.dest, predecessor_reaches)
+                else:
+                    arg_has_undef_path = True
+
+                if arg_has_undef_path:
+                    undef_dtype = try_resolve_undef_dtype(arg, instr)
+                    assert not isinstance(undef_dtype, Instruction)
+
+                    # Create the root block undef instr that will be referenced
+                    # as a use for the current basic block
+                    root_block_undef_instr = Instruction.create_undef_instr(
+                        arg.dest, undef_dtype
+                    )
+                    undef_map[arg.dest] = root_block_undef_instr
+                    tmp_undef_map = MultiDefMap.create()
+                    tmp_undef_map[arg.dest][root_bb_label] = root_block_undef_instr
+                    uses_defs.extend_key(arg.dest, tmp_undef_map)
+
         for instr in bb.instrs:
             # Handle reads
-            if hasattr(instr, "args"):
-                instr = cast(Instruction, instr)
-                if instr.args is not None:
-                    instr.args = cast(list[Instruction | PlaceholderInstr], instr.args)
-                    new_args: list[Instruction | PlaceholderInstr] = []
-                    for arg in instr.args:
-                        assert arg.dest is not None, (
-                            "Instruction args must have destination names"
-                        )
-                        new_arg, arg_has_undef_path = maybe_resolve_placeholder_arg(arg)
-                        new_args.append(new_arg)
-
-                        # If there is an undef path, just insert a use from the root block
-                        # of this variable. The caller can then choose what to do.
-                        if arg_has_undef_path:
-                            undef_dtype = try_resolve_undef_dtype(arg, instr)
-                            # Bril requires that there is only a single dtype for
-                            # a variable, so it should be okay to just overwrite anything existing
-                            # here
-                            undef_map[arg.dest] = undef_dtype
-                            placeholder_map = MultiDefMap.create()
-                            placeholder_map[arg.dest][root_bb_label] = (
-                                PlaceholderInstr.create(arg.dest, op="undef")
-                            )
-                            uses_defs.extend_key(arg.dest, placeholder_map)
-                    assert len(new_args) == len(instr.args)
-                    instr.args = new_args
+            if instr.args is not None:
+                for arg in instr.args:
+                    assert arg.dest is not None, (
+                        "Instruction args must have destination names"
+                    )
+                    add_uses_defs_for_arg(arg)
 
             # Process creation of a new variable
-            if hasattr(instr, "dest") and instr.dest is not None:
-                # If the BB overwrites another def within the BB
+            if instr.dest is not None:
+                # TODO: really bb_killed_defs should be str->dict[str, list[Instruction]]
+                # since a basic block can overwrite a definition multiple times
+                # for now just keep the most recent killed def from the current basic block
                 if instr.dest in bb_defs:
                     bb_killed_defs[instr.dest][bb_label] = bb_defs.pop(instr.dest)
-                # If the current instruction overwrites a def from a predecessor, or an undef
-                # inserted in uses_def, add it to the killed set
-                elif instr.dest in predecessor_reaches:
-                    bb_killed_defs.extend_key(instr.dest, predecessor_reaches)
+                # If there is a previous instruction that read from a variable with the
+                # same name, query the uses_defs
                 elif instr.dest in uses_defs:
                     bb_killed_defs.extend_key(instr.dest, uses_defs)
+                # If there isn't a use in the current BB, reference the predecessor reaches
+                elif instr.dest in predecessor_reaches:
+                    bb_killed_defs.extend_key(instr.dest, predecessor_reaches)
 
-                # No other instruction is killed
+                # Update the current reaching def
                 bb_defs[instr.dest] = instr
+
+        # Now check that each reaching def variable name has a path
+        # from the root block that defines a variable with the same destination
+        # If not, we need to insert an undef at the beginning of the root block
+        for var_name in predecessor_reaches:
+            if var_name not in undef_map and not all(
+                var_name in dataflow_map[pred_bb_label].exit_reaches
+                for pred_bb_label in cfg_predecessor_map[bb_label]
+            ):
+                # Pick any instruction that defines the variable as Bril requires that each variable carries a single dtype
+                var_def = cast(
+                    Instruction, list(predecessor_reaches[var_name].values())[0]
+                )
+
+                assert not isinstance(var_def.dtype, Instruction)
+                assert var_def.dtype is not None
+                assert var_def.dest is not None
+                root_block_undef_instr = Instruction.create_undef_instr(
+                    var_def.dest, var_def.dtype
+                )
+                undef_map[var_def.dest] = root_block_undef_instr
 
         return BBDataFlowInfo.create(
             bb_label=bb_label,
@@ -267,68 +258,82 @@ def run_dataflow_analysis(
             killed=bb_killed_defs,
             defsout=bb_defs,
             predecessor_reaches=predecessor_reaches,
-        ), undef_map
+        )
 
-    # Initialise dataflow info
-    dataflow_map: dict[str, BBDataFlowInfo] = {
-        bb_label: do_dataflow_analysis(
-            bb_label=bb_label,
-            predecessor_reaches=MultiDefMap.create(),
-            undef_map={},
-        )[0]
-        for bb_label in cfg.bb_successor_map.keys()
-    }
+    dataflow_map: dict[str, BBDataFlowInfo] = defaultdict(BBDataFlowInfo)
 
     def run_single_pass(*, resolve_uses_args: bool = False):
         changed = False
+        # undef instructions that should be inserted in the root block
+        undef_map: dict[str, Instruction] = {}
         # Track which variables may be undefined
-        undef_map: dict[str, Dtype] = {}
         ready_set: set[str] = set()
-        to_process: list[str] = [root_bb_label]
-        while to_process:
-            bb_label = to_process.pop()
+        current_level_successors: list[str] = [root_bb_label]
+        next_level_successors: list[str] = []
+        while current_level_successors:
+            bb_label = current_level_successors.pop()
+
+            # If we've already visited the block, continue
+            if bb_label in ready_set:
+                # After we've seen all current level successors,
+                # visit the next level - breadth first traversal
+                if not current_level_successors:
+                    current_level_successors = next_level_successors
+                    next_level_successors = []
+                continue
+
             remaining_predecessors = cfg_predecessor_map[bb_label] - ready_set
             if len(remaining_predecessors) > 0:
-                # Add the block first, then its predecessors
-                to_process.append(bb_label)
-                for rpred in remaining_predecessors:
-                    to_process.append(rpred)
-            else:
-                current_dataflow_info = dataflow_map[bb_label]
-                predecessor_reaches = MultiDefMap.create()
-                for predecessor_bb_label in cfg_predecessor_map[bb_label]:
-                    predecessor_dataflow_info = dataflow_map[predecessor_bb_label]
-                    assert predecessor_dataflow_info.exit_reaches is not None
-                    predecessor_reaches.add_instrs(
-                        predecessor_dataflow_info.exit_reaches
-                    )
-                new_dataflow_info, undef_map = do_dataflow_analysis(
-                    bb_label=bb_label,
-                    predecessor_reaches=predecessor_reaches,
-                    undef_map=undef_map,
-                    resolve_uses_args=resolve_uses_args,
-                )
-                if new_dataflow_info != current_dataflow_info:
-                    # Update ready set and dataflow info
-                    dataflow_map[bb_label] = new_dataflow_info
-                    changed = True
+                # Add the block, then its predecessors
+                current_level_successors.append(bb_label)
+                for rpred_label in remaining_predecessors:
+                    current_level_successors.append(rpred_label)
+                continue
 
-                # BB has been processed to add to the ready set
-                ready_set.add(bb_label)
+            assert len(remaining_predecessors) == 0, (
+                "Can only visit a basic block if all its predecessors are ready"
+            )
+
+            current_dataflow_info = dataflow_map[bb_label]
+            predecessor_reaches = MultiDefMap.create()
+            for predecessor_bb_label in cfg_predecessor_map[bb_label]:
+                predecessor_dataflow_info = dataflow_map[predecessor_bb_label]
+                predecessor_reaches.add_instrs(predecessor_dataflow_info.exit_reaches)
+            new_dataflow_info = do_dataflow_analysis(
+                bb_label=bb_label,
+                predecessor_reaches=predecessor_reaches,
+                undef_map=undef_map,
+            )
+            if new_dataflow_info != current_dataflow_info:
+                dataflow_map[bb_label] = new_dataflow_info
+                changed = True
+
+            for next_bb_label in cfg.bb_successor_map[bb_label]:
+                # If the successor BB is already ready, we don't need to add
+                # it to the worklist again. If the current BB has changed, the
+                # successor BB will be revisited again on a later pass
+                if next_bb_label not in ready_set:
+                    next_level_successors.append(next_bb_label)
+
+            # BB has been processed so add to the ready set
+            ready_set.add(bb_label)
+
+            # After we've seen all current level successors,
+            # visit the next level - breadth first traversal
+            if not current_level_successors:
+                current_level_successors = next_level_successors
+                next_level_successors = []
+
         return changed, undef_map
 
     # Fixed point algorithm for dataflow analysis
     # 1. Ensure we've done dataflow analysis for all the predecessors before
     # processing the current basic block
-    # 2. After the predecessors are ready, do dataflow analysis for the current block
+    # 2. After the predecessors are ready (breadth first), do dataflow analysis for the current block
     # 3. Check if the dataflow info for the current block has changed. If so, we
-    # will need to redo dataflow analysis for the entire CFG
+    # will need to redo dataflow analysis for the entire CFG on a later pass
     changed = True
     while changed:
-        changed, undef_map = run_single_pass()
-
-    # Last run to resolve more PlaceholderInstr
-    changed, undef_map = run_single_pass(resolve_uses_args=True)
-    assert not changed
+        changed, undef_map = run_single_pass(resolve_uses_args=False)
 
     return dataflow_map, undef_map
